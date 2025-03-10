@@ -12,11 +12,12 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.userSignin = exports.userSignup = void 0;
+exports.getUser = exports.updateUser = exports.userSignin = exports.userSignup = void 0;
 const zod_1 = require("zod");
 const user_model_1 = require("../models/user.model");
 const bcrypt_1 = __importDefault(require("bcrypt"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
+const account_model_1 = require("../models/account.model");
 const userSignup = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const requiredBody = zod_1.z.object({
         username: zod_1.z.string().min(3, { message: "username must be at least 3 characters long" }),
@@ -56,6 +57,7 @@ const userSignup = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             message: "User already exists!"
         });
     }
+    const balance = 1 + Math.random() * 10000;
     try {
         const user = yield user_model_1.userModel.create({
             username,
@@ -63,8 +65,17 @@ const userSignup = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             firstname,
             lastname
         });
+        const userId = user._id;
+        yield account_model_1.accountModel.create({
+            userId,
+            balance: balance
+        });
+        const token = jsonwebtoken_1.default.sign({
+            userId
+        }, process.env.JWT_SECRET);
         res.status(201).json({
             message: "User created!",
+            token: token,
             user
         });
     }
@@ -140,3 +151,69 @@ const userSignin = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
     }
 });
 exports.userSignin = userSignin;
+const updateUser = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const userId = req.userId;
+    const updateBody = zod_1.z.object({
+        password: zod_1.z.string().optional(),
+        firstName: zod_1.z.string().optional(),
+        lastName: zod_1.z.string().optional(),
+    });
+    if (!userId) {
+        res.status(404).json({
+            message: "User not found with this id"
+        });
+        return;
+    }
+    const { success } = updateBody.safeParse(req.body);
+    if (!success) {
+        res.status(411).json({
+            message: "Error while updating information"
+        });
+    }
+    try {
+        yield user_model_1.userModel.updateOne({ _id: userId }, req.body);
+        res.status(201).json({
+            message: "User updated successfully"
+        });
+    }
+    catch (error) {
+        console.log(error);
+        res.status(500).json({
+            message: "Error updating the user"
+        });
+    }
+});
+exports.updateUser = updateUser;
+const getUser = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const filter = req.params.filter || "";
+    try {
+        const users = user_model_1.userModel.find({
+            $or: [{
+                    firstname: {
+                        "$regex": filter
+                    }
+                },
+                {
+                    lastname: {
+                        "$regex": filter
+                    }
+                }
+            ]
+        });
+        res.json({
+            user: (yield users).map(user => ({
+                username: user.username,
+                firstname: user.firstname,
+                lastname: user.lastname,
+                _id: user.id
+            }))
+        });
+    }
+    catch (error) {
+        console.log(error);
+        res.status(500).json({
+            message: "Cannot find users"
+        });
+    }
+});
+exports.getUser = getUser;

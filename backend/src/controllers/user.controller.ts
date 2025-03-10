@@ -3,6 +3,8 @@ import { z } from 'zod'
 import { userModel } from "../models/user.model";
 import bcrypt from 'bcrypt'
 import jwt from "jsonwebtoken"
+import { CustomRequest } from "../middleware/auth.middleware";
+import { accountModel } from "../models/account.model";
 
 
 export const userSignup = async (req: Request, res: Response) => {
@@ -48,6 +50,8 @@ export const userSignup = async (req: Request, res: Response) => {
         })
     }
 
+    const balance = 1 + Math.random() * 10000;
+
     try {
         const user = await userModel.create({
             username,
@@ -55,9 +59,20 @@ export const userSignup = async (req: Request, res: Response) => {
             firstname,
             lastname
         })
+
+        const userId = user._id;
+        await accountModel.create({
+            userId,
+            balance: balance
+        })
+
+        const token = jwt.sign({
+            userId
+        }, process.env.JWT_SECRET as string)
     
         res.status(201).json({
             message: "User created!",
+            token: token,
             user
         })
     } catch (error) {
@@ -137,6 +152,77 @@ export const userSignin = async (req: Request, res: Response) => {
         console.log(error)
         res.status(500).json({
             message: "Internal server error!"
+        })
+    }
+}
+
+export const updateUser = async (req: CustomRequest, res: Response) => {
+    const userId = req.userId;
+
+    const updateBody = z.object({
+	    password: z.string().optional(),
+        firstName: z.string().optional(),
+        lastName: z.string().optional(),
+    })
+
+    if (!userId) {
+        res.status(404).json({
+            message: "User not found with this id"
+        })
+        return;
+    }
+
+    const { success } = updateBody.safeParse(req.body)
+    if (!success) {
+        res.status(411).json({
+            message: "Error while updating information"
+        })
+    }
+
+    try {
+        await userModel.updateOne({ _id: userId }, req.body)
+    
+        res.status(201).json({
+            message: "User updated successfully"
+        })
+    } catch (error) {
+        console.log(error)
+        res.status(500).json({
+            message: "Error updating the user"
+        })
+    }
+}
+
+export const getUser = async (req: CustomRequest, res: Response) => {
+    const filter = req.params.filter || "";
+
+    try {
+        const users = userModel.find({
+            $or: [{
+                    firstname: {
+                        "$regex": filter
+                    }
+                },
+                {
+                    lastname: {
+                        "$regex": filter
+                    }
+                }
+            ]
+        })
+
+        res.json({
+            user: (await users).map(user => ({
+                username: user.username,
+                firstname: user.firstname,
+                lastname: user.lastname,
+                _id: user.id
+            }))
+        })
+    } catch (error) {
+        console.log(error)
+        res.status(500).json({
+            message: "Cannot find users"
         })
     }
 }
